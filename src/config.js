@@ -34,6 +34,13 @@ export const config = Object.freeze({
     embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
     dim: asNumber(process.env.EMBEDDING_DIM, 1536),
   },
+  langsmith: {
+    tracing: asBool(process.env.LANGSMITH_TRACING),
+    apiKey: process.env.LANGSMITH_API_KEY ?? "",
+    project: process.env.LANGSMITH_PROJECT ?? "default",
+    endpoint: process.env.LANGSMITH_ENDPOINT ?? "https://api.smith.langchain.com",
+    background: asBool(process.env.LANGCHAIN_CALLBACKS_BACKGROUND),
+  },
 });
 
 export const isMock = config.mode === "mock";
@@ -59,11 +66,18 @@ export function makeLogger(scope) {
 export const logger = makeLogger("app");
 
 export function describeRuntime() {
+  // 只暴露「是否启用 / 项目名 / endpoint」，绝不把 API key 打印到日志或 HTTP 响应里
   return {
     mode: config.mode,
     llmModel: isMock ? `mock-chat(${config.llm.model})` : config.llm.model,
     embeddingModel: isMock ? "mock-hash-embedding" : config.llm.embeddingModel,
     postgres: config.databaseUrl ? "configured (runtime fallback allowed)" : "not configured",
     defaultGraph: config.defaultGraph,
+    langsmith: {
+      enabled: config.langsmith.tracing && Boolean(config.langsmith.apiKey),
+      project: config.langsmith.project,
+      endpoint: config.langsmith.endpoint,
+      keyConfigured: Boolean(config.langsmith.apiKey),
+    },
   };
 }

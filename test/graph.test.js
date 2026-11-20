@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// 集成测试强制离线：mock 模型 + 内存 checkpointer + 内存向量库，零外部依赖
+// 集成测试强制离线：mock 模型 + 内存 checkpointer + 内存向量库，零外部依赖。
+// 同时关掉 LangSmith，避免单测把噪声 trace 上报到真实项目。
 process.env.AGENT_MODE = "mock";
 process.env.DATABASE_URL = "";
+process.env.LANGSMITH_TRACING = "false";
 
 const { HumanMessage } = await import("@langchain/core/messages");
 const { createApp, invokeGraph } = await import("../src/graphs/factory.js");

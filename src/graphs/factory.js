@@ -1,5 +1,7 @@
 import { createCheckpointer } from "../memory/checkpointer.js";
 import { config, makeLogger } from "../config.js";
+import { traceGraphRun, langsmithInfo } from "../tracing/langsmith.js";
+import { lastUserText } from "./state.js";
 import { buildSupervisorGraph, SUPERVISOR_META } from "./supervisor.js";
 import { buildSwarmGraph, SWARM_META } from "./swarm.js";
 import { buildParallelGraph, PARALLEL_META } from "./parallel.js";
@@ -33,7 +35,11 @@ export async function createApp({ checkpointer, outputMode = "summary", force = 
     outputMode,
     defaultGraph: GRAPH_NAMES.includes(config.defaultGraph) ? config.defaultGraph : "supervisor",
   };
-  log.info("graphs compiled", { checkpointer: cachedApp.checkpointerKind, outputMode });
+  log.info("graphs compiled", {
+    checkpointer: cachedApp.checkpointerKind,
+    outputMode,
+    langsmith: langsmithInfo(),
+  });
   return cachedApp;
 }
 
@@ -42,12 +48,29 @@ export function graphConfig({ threadId = "demo-thread", namespace = "default", r
   return { configurable: { thread_id: threadId, namespace }, recursionLimit };
 }
 
+/**
+ * 同步执行：外层包一条 LangSmith run（顶层 chain + 节点 child runs）。
+ * 观测逻辑集中在这一层，节点代码完全不感知 tracing，符合依赖倒置。
+ */
 export async function invokeGraph(app, graphName, input, options = {}) {
   const graph = app.graphs[graphName];
   if (!graph) throw new Error(`未知拓扑 ${graphName}，可选：${GRAPH_NAMES.join(", ")}`);
-  return graph.invoke(input, graphConfig(options));
+  const cfg = graphConfig(options);
+  return traceGraphRun({
+    graphName,
+    threadId: cfg.configurable.thread_id,
+    namespace: cfg.configurable.namespace,
+    question: lastUserText(input.messages ?? []),
+    run: () => graph.invoke(input, cfg),
+  });
 }
 
+/**
+ * 流式执行：为了保持 SSE 的逐节点实时性，这里没有套 traceable。
+ * 生产里若要给 /stream 也加 trace，做法是用 traceable 包装 generator
+ * （收集结束后再 end run）或挂 LangChainTracer callback，不能简单包一层
+ * 同步函数，否则会退化成「全部跑完才返回」。
+ */
 export async function* streamGraph(app, graphName, input, options = {}) {
   const graph = app.graphs[graphName];
   if (!graph) throw new Error(`未知拓扑 ${graphName}，可选：${GRAPH_NAMES.join(", ")}`);
