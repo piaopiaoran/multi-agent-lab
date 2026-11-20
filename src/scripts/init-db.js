@@ -16,7 +16,7 @@ if (!probe.ok) {
 const sql = await fs.readFile(path.join(config.root, "db", "schema.sql"), "utf8");
 await execSqlFile(sql);
 log.info(`✓ 建表完成（${probe.db}）：knowledge_chunks / agent_memories / agent_events`);
-if (config.llm.dim !== 1536) {
-  log.warn(`当前 EMBEDDING_DIM=${config.llm.dim}，但 schema.sql 中是 vector(1536)；请同步修改列与索引。`);
+if (config.embedding.dim !== 1536) {
+  log.warn(`当前 EMBEDDING_DIM=${config.embedding.dim}，但 schema.sql 中是 vector(1536)；请同步修改列与索引。`);
 }
 await closePool();

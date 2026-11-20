@@ -27,7 +27,7 @@ const hasToolMessage = (messages) => messages.some((m) => m?._getType?.() === "t
 
 /** 稳定哈希 → 归一化向量。字面重合越多，余弦相似度越高，便于离线验证 RAG 排序。 */
 export function hashEmbedding(text) {
-  const dim = config.llm.dim;
+  const dim = config.embedding.dim;
   const vector = new Array(dim).fill(0);
   const tokens = String(text).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   for (const token of tokens) {

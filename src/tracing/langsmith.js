@@ -13,8 +13,11 @@ export const isLangSmithEnabled = () => config.langsmith.tracing && Boolean(conf
  * 但离线 mock 模式压根没有这些 Runnable，所以本文件还会用 traceable
  * 显式建一条顶层 run，并把节点事件转成 child runs。
  *
- * 两种模式最终汇成同一棵树：traceable 通过 AsyncLocalStorage 提供 current
- * run tree，LangChain 内部 tracer 会自动挂到它下面。
+ * 实测（真实模型）：LangChain 内部 tracer 还会自建一条节点链
+ * （LangGraph → supervisor / agent → ChatOpenAI / rag_search），与这里显式
+ * 创建的顶层 run 共同构成完整轨迹；工具节点偶尔是独立 root，属正常现象。
+ * 生产里若要求严格单棵树，可把 traceable 的 run tree 作为 callback 传给
+ * graph.invoke，让所有 run 显式共用同一个 parent_run_id。
  */
 export function configureLangSmithEnv() {
   if (!isLangSmithEnabled()) return false;
@@ -143,38 +146,55 @@ export async function traceGraphRun({ graphName, threadId, namespace, question, 
 /**
  * 给 trace-check 脚本用：验证上报是否真的到达。
  *
- * 注意两个 LangSmith 的坑：
- *  1) isRoot 过滤会把「ToolNode 单独上报的工具 run」也算作 root，直接用会看不到我们的顶层 run；
- *  2) 父 run 的 child_run_ids 通常不回填，子 run 只能通过 parent_run_id 反查。
- * 因此这里拉一批 run 后在本地按 name 前缀找顶层 run，再按 parent_run_id 数子节点。
+ * 三个 LangSmith 的坑：
+ *  1) 真实模型下每次 LLM / ToolNode 调用都会上报 run，全量扫描最近 100 条会把
+ *     顶层 run 挤出窗口（mock 模式没这个问题），所以必须先用 isRoot 缩小范围；
+ *  2) isRoot 里会混入「工具单独上报的 root」，要再按 name 前缀过滤；
+ *  3) 父 run 的 child_run_ids 通常不回填，子 run 只能用
+ *     filter=eq(parent_run_id, "...") 反查，不能靠本地 batch 里数。
  */
 export async function listRecentRuns(limit = 5) {
   if (!isLangSmithEnabled()) return { enabled: false, runs: [] };
   try {
-    const all = [];
-    for await (const run of getLangSmithClient().listRuns({
+    const client = getLangSmithClient();
+    const roots = [];
+    for await (const run of client.listRuns({
       projectName: config.langsmith.project,
+      isRoot: true,
       limit: 100,
     })) {
-      all.push(run);
-      if (all.length >= 100) break;
+      if (String(run.name ?? "").startsWith("multi-agent:")) roots.push(run);
+      if (roots.length >= limit) break;
     }
-    const roots = all.filter(
-      (r) => !r.parent_run_id && String(r.name ?? "").startsWith("multi-agent:"),
-    );
-    const runs = roots.slice(0, limit).map((r) => ({
-      id: r.id,
-      name: r.name,
-      status: r.status ?? "-",
-      start_time: r.start_time,
-      child_count: all.filter((c) => c.parent_run_id === r.id).length,
-      result: r.extra?.metadata?.status ?? "-",
-    }));
+
+    const runs = [];
+    for (const r of roots) {
+      let child_count = 0;
+      try {
+        for await (const _child of client.listRuns({
+          projectName: config.langsmith.project,
+          filter: `eq(parent_run_id, "${r.id}")`,
+          limit: 100,
+        })) {
+          child_count += 1;
+        }
+      } catch (err) {
+        log.debug("子节点统计失败", err.message);
+      }
+      runs.push({
+        id: r.id,
+        name: r.name,
+        status: r.status ?? "-",
+        start_time: r.start_time,
+        child_count,
+        result: r.extra?.metadata?.status ?? "-",
+      });
+    }
     return {
       enabled: true,
       project: config.langsmith.project,
       console: langsmithInfo().console,
-      scanned: all.length,
+      scanned: roots.length,
       runs,
     };
   } catch (err) {

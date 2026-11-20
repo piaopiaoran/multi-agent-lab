@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SystemMessage } from "@langchain/core/messages";
-import { getChatModel } from "../llm/factory.js";
+import { getRouterModel } from "../llm/factory.js";
 import { SUPERVISOR_SYSTEM } from "./prompts.js";
 import { AGENT_NAMES } from "../graphs/state.js";
 import { recordEvent } from "../memory/observability.js";
@@ -8,7 +8,12 @@ import { makeLogger } from "../config.js";
 
 const log = makeLogger("supervisor");
 
-/** 结构化输出 = 让 LLM 填「表单」而不是吐自然语言，路由才可被代码消费 */
+/**
+ * 结构化输出 = 让 LLM 填「表单」而不是吐自然语言，路由才可被代码消费。
+ * 注意：schema 只是「契约」，不同供应商的约束强度不同（OpenAI 由后端 grammar
+ * 强约束，DeepSeek 只能靠 prompt + json_object + 本地 zod 校验），所以下面
+ * 的 normalizeDecision 护栏对所有供应商都必须保留。
+ */
 export const RouteSchema = z.object({
   next: z.enum([...AGENT_NAMES, "FINISH"]).describe("下一个调度的成员；全部完成时填 FINISH"),
   reason: z.string().describe("一句话说明路由依据"),
@@ -43,8 +48,12 @@ export function normalizeDecision(raw, state, { maxIterations = 12 } = {}) {
 
 /** 中心化 Supervisor 节点：只决策，不执行任务、不写答案 */
 export function createSupervisorNode({ traceGraph = "supervisor", maxIterations = 12 } = {}) {
-  const router = getChatModel({ agentName: "supervisor", routeSequence: AGENT_NAMES })
-    .withStructuredOutput(RouteSchema);
+  const router = getRouterModel({
+    agentName: "supervisor",
+    routeSequence: AGENT_NAMES,
+    schema: RouteSchema,
+    allowedValues: [...AGENT_NAMES, "FINISH"],
+  });
 
   return async (state, config) => {
     const threadId = config?.configurable?.thread_id ?? "default";
@@ -61,8 +70,12 @@ export function createSupervisorNode({ traceGraph = "supervisor", maxIterations 
 
 /** Swarm 用：由当前 Agent 自己决定把控制权移交给谁（去中心化 handoff） */
 export function createHandoffRouter(agentName) {
-  const router = getChatModel({ agentName: "handoff", routeSequence: AGENT_NAMES })
-    .withStructuredOutput(RouteSchema);
+  const router = getRouterModel({
+    agentName: "handoff",
+    routeSequence: AGENT_NAMES,
+    schema: RouteSchema,
+    allowedValues: [...AGENT_NAMES, "FINISH"],
+  });
   return async (state, completedWithCurrent = []) => {
     const raw = await router.invoke([
       new SystemMessage({
