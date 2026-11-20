@@ -1,4 +1,6 @@
 import http from "node:http";
+import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { HumanMessage } from "@langchain/core/messages";
 import { createApp, invokeGraph, streamGraph, readState, GRAPH_META, GRAPH_NAMES } from "./graphs/factory.js";
 import { similaritySearch, addDocuments } from "./memory/vector-store.js";
@@ -39,12 +41,19 @@ const HELP = {
   "POST /stream": "同上参数，返回 SSE 流（逐节点 updates）",
 };
 
+// 单文件控制台：内联 CSS/JS，无构建步骤、无前端依赖，刷新即生效
+const INDEX_HTML = await readFile(path.join(config.root, "public", "index.html"), "utf8");
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
   if (req.method === "OPTIONS") return json(res, 204, {});
 
   try {
-    if (url.pathname === "/" || url.pathname === "/help") return json(res, 200, HELP);
+    if (url.pathname === "/") {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache" });
+      return res.end(INDEX_HTML);
+    }
+    if (url.pathname === "/help") return json(res, 200, HELP);
     if (url.pathname === "/health") return json(res, 200, { ok: true, runtime: describeRuntime() });
     if (url.pathname === "/meta") return json(res, 200, GRAPH_META);
 

@@ -104,6 +104,7 @@ class JsonObjectRouter {
       content: [
         "你必须只输出一个 JSON 对象，不要输出解释文字、不要使用 Markdown 代码块。",
         `对象只有两个字段：next 与 reason。next 只能取以下值之一：${this.allowedValues.join(" | ")}。`,
+        "必须根据消息里各成员的署名判断谁已完成；只要还有成员未交卷，就派给最早未完成的那个，绝不能提前返回 FINISH。",
         'reason 是一句话中文说明。示例：{"next":"researcher","reason":"先从知识库取证"}',
       ].join("\n"),
     });

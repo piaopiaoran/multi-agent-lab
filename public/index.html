@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>multi-agent-lab · 多 Agent 实验台</title>
+<style>
+  :root { --bd:#e3e6ea; --fg:#1f2328; --muted:#6b7280; --bg:#f7f8fa; --blue:#2563eb; --green:#16794a; --amber:#9a6700; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg); background:#fff; line-height:1.6; }
+  .wrap { max-width:1180px; margin:0 auto; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding-bottom:16px; border-bottom:1px solid var(--bd); margin-bottom:20px; }
+  h1 { font-size:19px; font-weight:600; margin:0; letter-spacing:.2px; }
+  .sub { font-size:12px; color:var(--muted); }
+  .links { margin-left:auto; display:flex; gap:14px; font-size:12px; }
+  a { color:var(--blue); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--bd); background:var(--bg); }
+  .badge.live { color:var(--green); border-color:#b7e0c8; background:#eefaf3; }
+  .badge.mock { color:var(--amber); border-color:#f0dfae; background:#fff9e8; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; margin-bottom:14px; }
+  .card { border:1px solid var(--bd); border-radius:12px; padding:16px; background:#fff; }
+  .card h2 { font-size:14px; font-weight:600; margin:0 0 12px; }
+  .card h2 span { font-weight:400; color:var(--muted); font-size:12px; margin-left:6px; }
+  .kv { display:flex; justify-content:space-between; gap:14px; font-size:12px; padding:5px 0; border-bottom:1px dashed #eef0f2; }
+  .kv:last-child { border-bottom:0; }
+  .kv b { font-weight:500; color:var(--muted); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
+  .topo { border:1px solid var(--bd); border-radius:10px; padding:12px; cursor:pointer; transition:border-color .15s,background .15s; }
+  .topo:hover { border-color:#b9c6e8; }
+  .topo.on { border-color:var(--blue); background:#f4f7ff; }
+  .topo h3 { font-size:13px; font-weight:600; margin:0 0 6px; }
+  .topo p { font-size:12px; color:var(--muted); margin:3px 0; }
+  label { display:block; font-size:12px; color:var(--muted); margin:10px 0 5px; }
+  textarea,input,select { width:100%; font:inherit; font-size:13px; padding:9px 11px; border:1px solid var(--bd); border-radius:8px; background:#fff; color:var(--fg); outline:none; }
+  textarea:focus,input:focus,select:focus { border-color:var(--blue); }
+  textarea { min-height:76px; resize:vertical; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin-top:12px; }
+  .row > div { flex:1 1 160px; }
+  button { font:inherit; font-size:13px; padding:9px 16px; border:1px solid var(--bd); border-radius:8px; background:#fff; color:var(--fg); cursor:pointer; }
+  button:hover { border-color:#b9c6e8; }
+  button.primary { background:var(--blue); border-color:var(--blue); color:#fff; }
+  button.primary:disabled { opacity:.55; cursor:not-allowed; }
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+  .chip { font-size:12px; padding:4px 9px; border:1px solid var(--bd); border-radius:999px; background:var(--bg); cursor:pointer; }
+  .check { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--muted); margin-top:12px; }
+  .check input { width:auto; }
+  .status { font-size:12px; color:var(--muted); margin:14px 0 8px; min-height:18px; }
+  .status.err { color:#b42318; }
+  .answer { white-space:pre-wrap; font-size:13.5px; line-height:1.75; background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:14px; max-height:420px; overflow:auto; }
+  .trace { margin-top:12px; max-height:230px; overflow:auto; }
+  .tr { display:flex; gap:9px; align-items:baseline; font-size:12px; padding:5px 0; border-bottom:1px solid #f1f2f4; }
+  .tr .n { min-width:88px; font-weight:500; }
+  .tr .e { color:var(--blue); min-width:52px; }
+  .tr .p { color:var(--muted); word-break:break-all; }
+  .hits { margin-top:10px; font-size:12px; }
+  .hit { border-left:2px solid #c9d6f5; padding:6px 10px; margin:8px 0; background:var(--bg); border-radius:0 6px 6px 0; }
+  .hit .s { color:var(--muted); }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:11.5px; background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:10px; max-height:240px; overflow:auto; margin:8px 0 0; }
+  footer { margin-top:22px; padding-top:14px; border-top:1px solid var(--bd); font-size:12px; color:var(--muted); }
+  @media (max-width:760px) { .links { margin-left:0; width:100%; } body { padding:16px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>multi-agent-lab</h1>
+      <div class="sub">LangChain + LangGraph + PostgreSQL/pgvector · 多 Agent 实验台</div>
+    </div>
+    <span id="modeBadge" class="badge">连接中</span>
+    <div class="links">
+      <a href="https://github.com/piaopiaoran/multi-agent-lab" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://smith.langchain.com/" target="_blank" rel="noopener">LangSmith</a>
+      <a href="/help" target="_blank" rel="noopener">API 清单</a>
+    </div>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>运行配置 <span>GET /health</span></h2>
+      <div id="runtime"><div class="sub">加载中…</div></div>
+    </section>
+    <section class="card">
+      <h2>三种拓扑 <span>GET /meta · 点击选中</span></h2>
+      <div id="topos" class="grid" style="grid-template-columns:1fr;gap:9px;margin:0"></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-bottom:14px">
+    <h2>跑一次多 Agent <span>POST /invoke 或 /stream</span></h2>
+    <label for="q">问题</label>
+    <textarea id="q">Supervisor 和 Swarm 该怎么选？结合 checkpointer 和长期记忆说说取舍。</textarea>
+    <div class="chips" id="chips"></div>
+    <div class="row">
+      <div><label for="graph">拓扑</label><select id="graph"></select></div>
+      <div><label for="thread">thread_id（同一 ID 复用 checkpoint）</label><input id="thread" value="web-demo"></div>
+      <div><label for="ns">namespace（L3 记忆隔离）</label><input id="ns" value="default"></div>
+      <div style="flex:0 0 auto"><button id="run" class="primary">运行</button></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stream"> 流式 SSE（逐节点实时输出；该路径不写 LangSmith 顶层 trace）</label>
+    <div id="status" class="status"></div>
+    <div id="answer" class="answer" style="display:none"></div>
+    <div id="trace" class="trace"></div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>知识库检索 <span>GET /knowledge</span></h2>
+      <label for="kq">查询词</label>
+      <input id="kq" value="pgvector 语义检索">
+      <div class="row"><div style="flex:0 0 auto"><button id="kbtn">检索</button></div></div>
+      <div id="hits" class="hits"></div>
+    </section>
+    <section class="card">
+      <h2>Checkpoint 状态 <span>GET /state</span></h2>
+      <label for="st">thread_id</label>
+      <input id="st" value="web-demo">
+      <div class="row"><div style="flex:0 0 auto"><button id="sbtn">读取</button></div></div>
+      <pre id="stateOut">点击「读取」查看该 thread 的状态快照。</pre>
+    </section>
+  </div>
+
+  <footer>
+    纯原生 JS 控制台 · 无构建、无前端依赖。真实模型一次调用约 15–25 秒；当前 RAG 使用本地哈希向量，非语义 embedding。
+  </footer>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (v) => String(v ?? "");
+function node(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = esc(text);
+  return el;
+}
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || ("HTTP " + r.status));
+  return r.json();
+}
+function kv(k, v) {
+  const row = node("div", "kv");
+  row.append(node("b", "", k), node("span", "mono", v));
+  return row;
+}
+
+let selected = "supervisor";
+const SAMPLES = [
+  "Supervisor 和 Swarm 该怎么选？结合 checkpointer 和长期记忆说说取舍。",
+  "checkpointer 和 pgvector 分别管哪层记忆？",
+  "并行扇出怎么实现？写冲突靠什么收敛？",
+  "多 Agent 死循环有哪些兜底手段？",
+];
+
+async function loadStatus() {
+  try {
+    const { runtime } = await api("/health");
+    const badge = $("#modeBadge");
+    badge.textContent = runtime.mode === "live" ? "真实模型已连接" : "离线 fake 模式";
+    badge.className = "badge " + (runtime.mode === "live" ? "live" : "mock");
+    const box = $("#runtime");
+    box.replaceChildren();
+    box.append(
+      kv("mode", runtime.mode),
+      kv("LLM", runtime.llm.provider === "fake" ? "本地确定性应答" : runtime.llm.model + " @ " + runtime.llm.provider),
+      kv("baseURL", runtime.llm.baseURL ?? "-"),
+      kv("结构化输出", runtime.llm.structuredOutput ?? "-"),
+      kv("embedding", runtime.embedding.model + " / " + runtime.embedding.dim + " 维"),
+      kv("PostgreSQL", runtime.postgres),
+      kv("LangSmith", runtime.langsmith.enabled ? runtime.langsmith.project : "未启用"),
+    );
+  } catch (e) {
+    $("#modeBadge").textContent = "服务未连接";
+    $("#runtime").replaceChildren(node("div", "sub", e.message));
+  }
+}
+
+async function loadMeta() {
+  try {
+    const meta = await api("/meta");
+    const wrap = $("#topos");
+    const sel = $("#graph");
+    wrap.replaceChildren();
+    sel.replaceChildren();
+    for (const [key, m] of Object.entries(meta)) {
+      const card = node("div", "topo" + (key === selected ? " on" : ""));
+      card.append(node("h3", "", m.label || key));
+      card.append(node("p", "", "控制：" + (m.control || "-")));
+      card.append(node("p", "", "开销：" + (m.callsPerTask || "-")));
+      card.append(node("p", "", "优势：" + (m.strength || "-")));
+      card.append(node("p", "", "代价：" + (m.weakness || "-")));
+      card.addEventListener("click", () => {
+        selected = key;
+        sel.value = key;
+        [...wrap.children].forEach((c) => c.classList.toggle("on", c === card));
+      });
+      wrap.append(card);
+      const opt = node("option", "", m.label || key);
+      opt.value = key;
+      sel.append(opt);
+    }
+    sel.value = selected;
+    sel.addEventListener("change", () => {
+      selected = sel.value;
+      [...wrap.children].forEach((c, i) => c.classList.toggle("on", Object.keys(meta)[i] === selected));
+    });
+  } catch (e) {
+    $("#topos").replaceChildren(node("div", "sub", e.message));
+  }
+}
+
+function renderTrace(events) {
+  const box = $("#trace");
+  box.replaceChildren();
+  if (!events.length) return;
+  box.append(node("div", "sub", "节点执行轨迹（" + events.length + " 条）"));
+  for (const e of events) {
+    const row = node("div", "tr");
+    row.append(node("span", "n mono", e.node || "-"), node("span", "e", e.event || "-"));
+    const p = e.payload ? Object.entries(e.payload).map(([k, v]) => k + "=" + (typeof v === "object" ? JSON.stringify(v) : v)).join("  ") : "";
+    row.append(node("span", "p", p));
+    box.append(row);
+  }
+}
+
+function appendUpdate(chunk) {
+  const box = $("#trace");
+  if (!box.querySelector(".sub")) box.append(node("div", "sub", "SSE 逐节点输出"));
+  for (const [name, update] of Object.entries(chunk || {})) {
+    const row = node("div", "tr");
+    row.append(node("span", "n mono", name), node("span", "e", "update"));
+    const brief = update && typeof update === "object"
+      ? Object.keys(update).join(", ") || "{}"
+      : String(update ?? "");
+    row.append(node("span", "p", brief));
+    box.append(row);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+async function runSync(body, t0) {
+  const out = await api("/invoke", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  $("#answer").style.display = "block";
+  $("#answer").textContent = out.answer || "（无答复）";
+  renderTrace(out.events || []);
+  return "完成 · " + ((Date.now() - t0) / 1000).toFixed(1) + "s · " + (out.state?.iteration ?? 0) + " 次迭代";
+}
+
+async function runStream(body, t0) {
+  const r = await fetch("/stream", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "", n = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() || "";
+    for (const part of parts) {
+      const lines = part.split("\n");
+      const ev = lines.find((l) => l.startsWith("event:"))?.slice(6).trim();
+      const raw = lines.find((l) => l.startsWith("data:"))?.slice(5).trim();
+      if (!raw) continue;
+      let data;
+      try { data = JSON.parse(raw); } catch { continue; }
+      if (ev === "error") throw new Error(data.error || "流错误");
+      if (ev === "update") { appendUpdate(data); n += 1; }
+      if (ev === "done") {
+        const st = await api("/state?graph=" + encodeURIComponent(body.graph) + "&threadId=" + encodeURIComponent(body.threadId));
+        const last = (st.values?.messages || []).filter((m) => m.name === "writer").at(-1);
+        if (last) {
+          $("#answer").style.display = "block";
+          $("#answer").textContent = last.content;
+        }
+      }
+    }
+  }
+  return "流式完成 · " + ((Date.now() - t0) / 1000).toFixed(1) + "s · " + n + " 个节点更新";
+}
+
+$("#run").addEventListener("click", async () => {
+  const btn = $("#run"), st = $("#status");
+  btn.disabled = true;
+  st.className = "status";
+  st.textContent = "运行中…（真实模型约 15–25 秒）";
+  $("#answer").style.display = "none";
+  $("#trace").replaceChildren();
+  const body = {
+    question: $("#q").value.trim() || "多 Agent 架构怎么选？",
+    graph: $("#graph").value,
+    threadId: $("#thread").value.trim() || "web-demo",
+    namespace: $("#ns").value.trim() || "default",
+  };
+  const t0 = Date.now();
+  try {
+    st.textContent = $("#stream").checked ? await runStream(body, t0) : await runSync(body, t0);
+  } catch (e) {
+    st.className = "status err";
+    st.textContent = "失败：" + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+const chips = $("#chips");
+SAMPLES.forEach((s) => {
+  const c = node("span", "chip", s.length > 22 ? s.slice(0, 22) + "…" : s);
+  c.title = s;
+  c.addEventListener("click", () => { $("#q").value = s; });
+  chips.append(c);
+});
+
+$("#kbtn").addEventListener("click", async () => {
+  const box = $("#hits");
+  box.replaceChildren(node("div", "sub", "检索中…"));
+  try {
+    const out = await api("/knowledge?q=" + encodeURIComponent($("#kq").value) + "&k=3");
+    box.replaceChildren();
+    if (!out.hits.length) box.append(node("div", "sub", "无命中"));
+    for (const h of out.hits) {
+      const d = node("div", "hit");
+      d.append(node("div", "s", "score " + Number(h.score).toFixed(3) + " · " + (h.metadata?.source || "unknown")));
+      d.append(node("div", "", h.content));
+      box.append(d);
+    }
+  } catch (e) { box.replaceChildren(node("div", "sub", e.message)); }
+});
+
+$("#sbtn").addEventListener("click", async () => {
+  const out = $("#stateOut");
+  out.textContent = "读取中…";
+  try {
+    const s = await api("/state?graph=" + encodeURIComponent($("#graph").value) + "&threadId=" + encodeURIComponent($("#st").value));
+    out.textContent = JSON.stringify(s, null, 2);
+  } catch (e) { out.textContent = e.message; }
+});
+
+loadStatus();
+loadMeta();
+</script>
+</body>
+</html>

@@ -47,3 +47,12 @@ test("决策归一化：全部完成后收敛", () => {
   );
   assert.equal(d.next, "FINISH");
 });
+
+test("决策归一化：拦截模型「虚假完成」的提前 FINISH", () => {
+  const d = normalizeDecision(
+    { next: "FINISH", reason: "researcher、analyst、writer 均已完成" },
+    { completedAgents: ["researcher"], iteration: 1 },
+  );
+  assert.equal(d.next, "analyst");
+  assert.match(d.reason, /拦截提前收敛/);
+});

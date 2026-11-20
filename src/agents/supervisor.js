@@ -32,6 +32,15 @@ export function normalizeDecision(raw, state, { maxIterations = 12 } = {}) {
   }
   const rawNext = String(raw?.next ?? "FINISH");
   if (rawNext === "FINISH" || /^end$/i.test(rawNext)) {
+    // 真实模型最常见的幻觉之一：明明只跑了一个 worker，却声称「全部完成」。
+    // 流水线是固定的，所以由代码按 completedAgents 校验，绝不信模型的自我判断。
+    const remaining = AGENT_NAMES.filter((n) => !done.has(n));
+    if (remaining.length) {
+      return {
+        next: remaining[0],
+        reason: `拦截提前收敛：模型返回 FINISH（${reason || "无理由"}），但 ${remaining.join("/")} 尚未完成，改派 ${remaining[0]}`,
+      };
+    }
     return { next: "FINISH", reason: reason || "调度器判定任务完成" };
   }
   if (!AGENT_NAMES.includes(rawNext)) {
