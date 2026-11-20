@@ -17,8 +17,8 @@ test("未启用时透传业务结果，且不产生任何上报", async () => {
   assert.deepEqual(await listRecentRuns(1), { enabled: false, runs: [] });
 });
 
-test("观测信息脱敏：不含 API key", () => {
+test("观测信息脱敏：不含任何凭据字段", () => {
   const info = langsmithInfo();
   assert.ok(!("apiKey" in info));
-  assert.ok(!JSON.stringify(info).includes("lsv2_pt_"));
+  assert.ok(!Object.keys(info).some((k) => /key|token|secret/i.test(k)));
 });
