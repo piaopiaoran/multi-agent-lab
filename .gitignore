@@ -1,0 +1,27 @@
+# ---------- 依赖与构建产物 ----------
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+
+# ---------- 本地密钥：绝对不能进仓库 ----------
+.env
+.env.local
+.env.*.local
+.envrc
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# ---------- 系统 / 编辑器 ----------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---------- WorkBuddy 工作区数据 ----------
+.workbuddy/

@@ -1,0 +1,27 @@
+{
+  "name": "multi-agent-supervisor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "中心化 Supervisor 多 Agent 学习项目：LangChain.js + LangGraph.js + PostgreSQL + pgvector + LangSmith",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "demo": "node src/cli.js",
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/selfcheck.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.5.0",
+    "@langchain/langgraph": "^1.7.5",
+    "@langchain/langgraph-checkpoint-postgres": "^1.1.4",
+    "@langchain/openai": "^1.8.5",
+    "dotenv": "^16.4.7",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  }
+}
