@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/cli.js",
     "demo": "node src/cli.js",
+    "web": "node src/web/server.js",
     "test": "node --test test/*.test.js",
     "check": "node scripts/selfcheck.js",
     "db:up": "docker compose up -d",

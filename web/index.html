@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Supervisor Console · 多 Agent 可观测面板</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>Supervisor Console</h1>
+          <p>中心化多 Agent · LangGraph 运行轨迹实时面板</p>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <span class="badge" id="badge-llm">LLM —</span>
+        <span class="badge" id="badge-trace">LangSmith —</span>
+        <span class="badge" id="badge-store">Store —</span>
+        <span class="status" id="run-status"><i></i> 空闲</span>
+        <button type="button" class="icon-btn" id="theme-toggle" title="切换主题">◐</button>
+      </div>
+    </header>
+
+    <main class="app">
+      <!-- 左栏：控制台 -->
+      <section class="panel control">
+        <div class="panel-head"><h2>控制台</h2><span class="panel-hint">配置一次运行</span></div>
+
+        <label class="field-label" for="question">用户任务</label>
+        <textarea id="question" rows="6" spellcheck="false" placeholder="输入你想让多 Agent 协作完成的任务…"></textarea>
+
+        <div class="examples">
+          <button type="button" class="chip" data-example="arch">架构对比</button>
+          <button type="button" class="chip" data-example="graph">条件边 / Checkpointer</button>
+          <button type="button" class="chip" data-example="rag">检索 + 计算</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <label class="field-label" for="provider">LLM 档位</label>
+        <select id="provider">
+          <option value="fake">fake · 确定性本地应答（零成本）</option>
+          <option value="openai">openai · DeepSeek 真实模型</option>
+        </select>
+
+        <label class="field-label" for="thread">thread_id（可选，Checkpointer 会话键）</label>
+        <input id="thread" type="text" spellcheck="false" placeholder="留空则自动生成" />
+
+        <label class="check">
+          <input id="trace" type="checkbox" />
+          <span>上报 LangSmith trace</span>
+        </label>
+
+        <label class="check">
+          <input id="verbose" type="checkbox" />
+          <span>显示节点 / 状态等详细事件</span>
+        </label>
+
+        <div class="actions">
+          <button type="button" class="btn primary" id="btn-run">▶ 启动运行</button>
+          <button type="button" class="btn ghost" id="btn-stop" disabled>■ 中止</button>
+        </div>
+
+        <div class="divider"></div>
+        <div class="panel-head compact"><h2>运行配置</h2></div>
+        <pre id="config-summary" class="config-summary">加载中…</pre>
+        <p class="note">
+          密钥只保存在服务端 .env，本页面只接收脱敏摘要。<br />
+          服务仅监听 127.0.0.1，不对外暴露。
+        </p>
+      </section>
+
+      <!-- 中栏：拓扑 + 产出 -->
+      <section class="panel stage">
+        <div class="panel-head">
+          <h2>中心化拓扑</h2>
+          <span class="panel-hint">只有 Supervisor 拥有条件边，Worker 一律回到中心</span>
+        </div>
+
+        <div class="topology-wrap">
+          <svg id="topology" viewBox="0 0 640 270" role="img" aria-label="Supervisor 星形拓扑图">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head" />
+              </marker>
+            </defs>
+
+            <g class="edges">
+              <path id="edge-researcher" d="M 245 118 C 205 100, 190 78, 175 60" marker-end="url(#arrow)" />
+              <path id="edge-analyst" d="M 245 152 C 205 170, 190 192, 175 210" marker-end="url(#arrow)" />
+              <path id="edge-writer" d="M 395 152 C 435 170, 450 192, 465 210" marker-end="url(#arrow)" />
+              <path id="edge-FINISH" d="M 395 118 C 435 100, 450 78, 465 60" marker-end="url(#arrow)" />
+            </g>
+
+            <g class="node worker" id="node-researcher">
+              <rect x="35" y="37" width="140" height="46" rx="12" />
+              <circle class="dot" cx="52" cy="60" r="4" />
+              <text x="68" y="65">researcher</text>
+              <text class="node-sub" x="105" y="99" text-anchor="middle">检索资料</text>
+            </g>
+            <g class="node worker" id="node-analyst">
+              <rect x="35" y="187" width="140" height="46" rx="12" />
+              <circle class="dot" cx="52" cy="210" r="4" />
+              <text x="68" y="215">analyst</text>
+              <text class="node-sub" x="105" y="249" text-anchor="middle">分析 / 计算</text>
+            </g>
+            <g class="node worker" id="node-writer">
+              <rect x="465" y="187" width="140" height="46" rx="12" />
+              <circle class="dot" cx="482" cy="210" r="4" />
+              <text x="498" y="215">writer</text>
+              <text class="node-sub" x="535" y="249" text-anchor="middle">汇总成文</text>
+            </g>
+            <g class="node terminal" id="node-FINISH">
+              <rect x="465" y="37" width="140" height="46" rx="12" />
+              <circle class="dot" cx="482" cy="60" r="4" />
+              <text x="498" y="65">FINISH</text>
+              <text class="node-sub" x="535" y="99" text-anchor="middle">收敛结束</text>
+            </g>
+            <g class="node hub" id="node-supervisor">
+              <rect x="245" y="107" width="150" height="56" rx="14" />
+              <circle class="dot" cx="266" cy="135" r="5" />
+              <text x="282" y="133" class="hub-title">Supervisor</text>
+              <text x="282" y="151" class="hub-sub">route → state.next</text>
+            </g>
+          </svg>
+        </div>
+
+        <div class="stats">
+          <div><span>轮次</span><b id="stat-rounds">0</b></div>
+          <div><span>已访问</span><b id="stat-visited">—</b></div>
+          <div><span>工具调用</span><b id="stat-tools">0</b></div>
+          <div><span>耗时</span><b id="stat-time">0.0s</b></div>
+        </div>
+
+        <div class="panel-head compact">
+          <h2>Worker 产出</h2>
+          <div class="tabs" id="worker-tabs">
+            <button type="button" class="tab active" data-worker="researcher">researcher</button>
+            <button type="button" class="tab" data-worker="analyst">analyst</button>
+            <button type="button" class="tab" data-worker="writer">writer</button>
+          </div>
+        </div>
+        <div class="worker-output" id="worker-output">
+          <p class="empty">尚未运行。启动后这里会实时填入该 Worker 的产出。</p>
+        </div>
+
+        <div class="panel-head compact">
+          <h2>最终答案</h2>
+          <button type="button" class="chip" id="btn-copy" disabled>复制</button>
+        </div>
+        <article class="markdown final-answer" id="final-answer">
+          <p class="empty">等待运行结束…</p>
+        </article>
+      </section>
+
+      <!-- 右栏：事件流 -->
+      <section class="panel events">
+        <div class="panel-head">
+          <h2>事件流 <span class="live-dot" id="live-dot"></span></h2>
+          <span class="panel-hint" id="event-count">0 条</span>
+        </div>
+        <div class="event-filters">
+          <button type="button" class="chip active" data-filter="all">全部</button>
+          <button type="button" class="chip" data-filter="route">路由</button>
+          <button type="button" class="chip" data-filter="tool">工具</button>
+          <button type="button" class="chip" data-filter="worker">产出</button>
+        </div>
+        <ol class="timeline" id="timeline">
+          <li class="timeline-empty">事件会随 SSE 实时推送到这里。</li>
+        </ol>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

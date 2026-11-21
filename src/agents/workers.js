@@ -1,5 +1,6 @@
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import { buildObservationMessages } from "./context.js";
+import { emit, EVT } from "./events.js";
 
 /**
  * 三个专职 Worker。注意 system prompt 里的 [WORKER:xxx] 标记：
@@ -34,8 +35,10 @@ export const WORKER_SPECS = {
  *
  * 节点只往 state 写「带 name 的最终 AIMessage」，中间的工具往返不写进全局状态，
  * 这样 Supervisor 看到的是干净的结果流，上下文也不会膨胀。
+ * 但工具往返会通过 onEvent 实时推给 Web 控制台 —— 这正是可观测性的价值：
+ * 状态保持精简，展示层依然能看到完整过程。
  */
-export function makeWorkerNode(name, { llm, tools, cfg }) {
+export function makeWorkerNode(name, { llm, tools, cfg, onEvent }) {
   const spec = WORKER_SPECS[name];
   if (!spec) throw new Error(`未知 Worker：${name}`);
 
@@ -44,6 +47,9 @@ export function makeWorkerNode(name, { llm, tools, cfg }) {
   const boundLLM = workerTools.length ? llm.bindTools(workerTools) : llm;
 
   return async (state) => {
+    const round = state.rounds + 1;
+    emit(onEvent, EVT.NODE, { node: name, phase: "start", round });
+
     // 前序 Worker 的产出以 observation 形式注入，不伪装成历史 assistant 消息
     const convo = buildObservationMessages({ system: spec.system, state });
     const usedTools = [];
@@ -58,7 +64,16 @@ export function makeWorkerNode(name, { llm, tools, cfg }) {
       convo.push(aiMessage);
       for (const call of calls) {
         const target = toolByName.get(call.name);
+        const startedAt = Date.now();
         let content;
+        emit(onEvent, EVT.TOOL, {
+          worker: name,
+          tool: call.name,
+          args: call.args ?? {},
+          phase: "start",
+          round,
+          iteration: iterations + 1,
+        });
         if (!target) {
           content = `错误：Worker ${name} 无权调用工具 ${call.name}`;
         } else {
@@ -69,6 +84,15 @@ export function makeWorkerNode(name, { llm, tools, cfg }) {
             content = `工具 ${call.name} 执行失败：${error.message}`;
           }
         }
+        emit(onEvent, EVT.TOOL, {
+          worker: name,
+          tool: call.name,
+          result: content,
+          phase: "end",
+          durationMs: Date.now() - startedAt,
+          round,
+          iteration: iterations + 1,
+        });
         convo.push(
           new ToolMessage({
             content,
@@ -84,6 +108,15 @@ export function makeWorkerNode(name, { llm, tools, cfg }) {
       typeof aiMessage?.content === "string" && aiMessage.content.trim()
         ? aiMessage.content
         : `[${name}] 已达到工具迭代上限（${cfg.graph.maxToolIterations}），未产出文本。`;
+
+    emit(onEvent, EVT.WORKER, {
+      worker: name,
+      content: text,
+      tools: [...usedTools],
+      iterations,
+      round,
+    });
+    emit(onEvent, EVT.NODE, { node: name, phase: "end", round });
 
     return {
       messages: [new AIMessage({ content: text, name })],

@@ -18,12 +18,14 @@ import { makeWorkerNode } from "../agents/workers.js";
  * 只有 Supervisor 拥有「条件边」。这就是「中心化」在图结构上的体现 ——
  * 没有任何 Worker 能直接把控制权移交给另一个 Worker。
  */
-export function buildGraph({ cfg, llm, tools, checkpointer }) {
-  const graph = new StateGraph(AgentState)
-    .addNode("supervisor", makeSupervisorNode({ llm, routeTool: tools.route, cfg }));
+export function buildGraph({ cfg, llm, tools, checkpointer, onEvent }) {
+  const graph = new StateGraph(AgentState).addNode(
+    "supervisor",
+    makeSupervisorNode({ llm, routeTool: tools.route, cfg, onEvent }),
+  );
 
   for (const name of WORKER_NAMES) {
-    graph.addNode(name, makeWorkerNode(name, { llm, tools, cfg }));
+    graph.addNode(name, makeWorkerNode(name, { llm, tools, cfg, onEvent }));
   }
 
   graph.addEdge(START, "supervisor");

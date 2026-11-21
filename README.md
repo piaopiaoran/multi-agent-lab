@@ -2,7 +2,7 @@
 
 > 一个**能跑通、能讲清、能对照取舍**的中心化 Supervisor 多 Agent 项目，为面试准备而写。
 
-技术栈：**LangChain.js 1.x + LangGraph.js 1.x + PostgreSQL/pgvector + LangSmith + DeepSeek V4.1-Flash**
+技术栈：**LangChain.js 1.x + LangGraph.js 1.x + PostgreSQL/pgvector + LangSmith + DeepSeek V4.1-Flash + 原生 ESM Web 控制台（SSE）**
 语言：**全程 JavaScript（Node.js ≥ 20，ESM），没有一行 Python**。
 
 它把下面这条链路完整跑了一遍，每个环节都能在代码里找到对应实现：
@@ -105,16 +105,27 @@ sequenceDiagram
 │   ├── agents/
 │   │   ├── state.js          # Annotation 状态 + reducer
 │   │   ├── context.js        # 把子 Agent 产出折叠成 observation
+│   │   ├── events.js         # 可选 onEvent 事件协议（Web SSE 的数据源）
 │   │   ├── tools.js          # retrieve_knowledge / calculate / get_current_time / route
 │   │   ├── supervisor.js     # 路由节点 + 三重护栏
 │   │   └── workers.js        # 最小 agent harness（LLM ↔ 工具循环）
 │   ├── graph/buildGraph.js   # StateGraph 拓扑 + 条件边
+│   ├── web/
+│   │   ├── server.js         # node:http 零依赖服务：静态资源 + SSE + 运行 API
+│   │   └── runner.js         # app.stream updates 模式 + 按 reducer 累积最终状态
 │   └── memory/
 │       ├── vectorStore.js    # 内存 cosine / pgvector <=> 检索，两种后端同接口
 │       ├── checkpointer.js   # MemorySaver / PostgresSaver
 │       ├── seed.js           # 内置面试知识库片段
 │       └── schema.sql        # CREATE EXTENSION vector + HNSW 索引示例
-└── test/graph.test.js        # 8 个用例，全程零密钥零网络
+├── web/                      # 前端控制台（原生 ESM，零构建、零 CDN）
+│   ├── index.html            # 三栏布局 + 星形拓扑 SVG
+│   ├── app.js                # EventSource 消费 SSE、拓扑高亮、Markdown 渲染
+│   ├── style.css             # CSS 变量双主题（跟随系统，可手动切换）
+│   └── favicon.svg
+└── test/
+    ├── graph.test.js         # 8 个用例，全程零密钥零网络
+    └── web.test.js           # 3 个用例：配置接口 / 静态资源 / SSE 全链路
 ```
 
 ---
@@ -203,7 +214,45 @@ npm start
 psql "$DATABASE_URL" -c "SELECT count(*) FROM checkpoints;"   # 图跑过之后有快照
 ```
 
-> ⚠️ 诚实说明：开发机上没有 Docker / psql，所以 **档位 C 的代码与 SQL 已完整实现，但未在本机实跑**；档位 A、B 均已实跑验证。
+> ⚠️ 诚实说明：开发机上没有 Docker / psql，所以 **档位 C 的代码与 SQL 已完整实现，但未在本机实跑**；档位 A、B、D 均已实跑验证。
+
+### 5.4 档位 D：Web 控制台（实时可视化运行轨迹）
+
+```bash
+npm run web                 # 默认 http://127.0.0.1:5173
+WEB_PORT=8080 npm run web   # 自定义端口
+```
+
+页面是三栏结构：**左栏**填任务、选 `fake`/`openai` 档、开/关 LangSmith 上报、指定 `thread_id`；**中栏**是星形拓扑 SVG（当前节点脉冲高亮、路由连线流动）+ 轮次/工具数/耗时统计 + 三个 Worker 产出卡片 + Markdown 最终答案；**右栏**是按时间线滚动的实时事件流，可按「路由 / 工具 / 产出」过滤。`⌘/Ctrl + Enter` 直接启动，长工具返回可折叠查看。
+
+**为什么值得做这一层**：CLI 用 `invoke`，只在整条链路跑完后一次性输出，面试讲解时看不到「Supervisor 为什么这样路由」「Worker 究竟调了什么工具、拿回什么结果」。Web 层改用 `app.stream({ streamMode: "updates" })`，配合节点内一个**可选**的 `onEvent` 回调把过程实时推给浏览器；不传回调时核心链路与 CLI 完全一致（8 个原有测试零改动通过）。
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/agents/events.js` | 定义事件类型与 `emit()`；回调自身异常被吞掉，展示层故障绝不影响 Agent 执行 |
+| `src/web/runner.js` | `app.stream` 逐节点吐 updates，按 `AgentState` 的 reducer 语义自己累积最终状态（不依赖 `getState`，少一次 IO） |
+| `src/web/server.js` | `node:http` 零依赖：`POST /api/run`、`GET /api/events/:id`（SSE）、`GET /api/config`、`POST /api/stop/:id` |
+| `web/app.js` | `EventSource` 消费 SSE，驱动拓扑高亮、时间线、Worker 卡片与答案渲染 |
+
+SSE 事件协议：
+
+| 事件 | 触发点 | 页面呈现 |
+| --- | --- | --- |
+| `meta` | runner 启动 | 配置徽章、`thread_id`、护栏参数 |
+| `node` | 节点 start / end | 拓扑高亮（「显示详细事件」开启时可见） |
+| `route` | Supervisor 每次决策 | `Supervisor → X`、决策 reason、护栏拦截标记 |
+| `tool` | Worker 工具调用前 / 返回后 | 调用参数、完整返回、耗时 ms |
+| `worker` | Worker 产出 | 对应产出卡片 + 字数 / 迭代数 |
+| `state` | 节点写回 updates | `rounds` / `visited` 统计 |
+| `final` / `error` / `done` | 收尾 | 最终答案 / 报错提示 / 关闭流 |
+
+几个可以直接拿去讲的取舍：
+
+- **SSE 而非 WebSocket**：数据方向只有「服务端 → 浏览器」，浏览器原生 `EventSource` 自带断线重连与 `Last-Event-ID`；控制命令走普通 `POST`。服务端几十行 `node:http` 就够，不引入 `ws` / `express`。
+- **事件不进 state**：state 是决策依据，会被 Checkpointer 持久化并喂给模型；事件是给人看的轨迹，包含工具参数、耗时、中间失败，绝不回流进 LLM 上下文。这是「横切关注点」与「状态边界」的分离 —— 面试里很容易被追问。
+- **事件缓存 + 回放**：`POST /api/run` 先返回 `runId`，浏览器随后才建立订阅；服务端按 `seq` 缓存全部事件，因此即使运行已经开始也不会丢，重连时只补增量。串行单运行（`activeRunId`）是为了避免 LangChain tracer「按每次 run 动态读环境变量」导致并发时 tracing 开关互相串；每次运行前还会恢复 LangSmith 环境快照，因为 `configureLangSmith()` 关闭 tracing 时会 `delete` 掉 key。
+- **安全**：服务只监听 `127.0.0.1`，静态资源走白名单映射（不接受任意路径拼接），`/api/config` 只返回 `describeConfig()` 的脱敏摘要，密钥始终留在服务端 `.env`；前端所有模型输出都先转义再插入 DOM。
+- **零构建零 CDN**：原生 ESM + CSS 变量双主题，完全离线可用；和 LangSmith 是互补关系 —— 一个自托管实时 UI，一个持久化 run tree 离线分析。
 
 ---
 
@@ -386,10 +435,11 @@ npm run check -- --live    # 额外打一次真实 LLM
 
 | 项 | 结果 |
 | --- | --- |
-| `npm test` | **8/8 通过**（配置、向量、工具、完整图、Checkpointer、护栏、密钥） |
+| `npm test` | **11/11 通过**（8 个核心用例 + 3 个 Web / SSE 用例） |
 | 档位 A fake 链路 | ✅ researcher → analyst → writer → FINISH，4 轮，工具与检索均生效 |
 | 档位 B 真实 DeepSeek（thinking disabled） | ✅ 跑通，writer 产出结构化架构分析 |
 | 档位 B 真实 DeepSeek（thinking enabled） | ✅ 跑通，observation 折叠规避了 400 |
+| 档位 D Web 控制台 | ✅ 单次运行推送 34 个事件；`meta → route → tool → worker → final → done` 全链路，fake 与真实模型均可驱动 |
 | LangSmith tracing | ✅ 开启并写入 project `multi-agent-supervisor-demo` |
 | 密钥泄漏扫描 | ✅ 0 处 |
 

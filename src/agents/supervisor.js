@@ -1,6 +1,7 @@
 import { AIMessage } from "@langchain/core/messages";
 import { WORKER_NAMES } from "./state.js";
 import { buildObservationMessages } from "./context.js";
+import { emit, EVT } from "./events.js";
 
 const SUPERVISOR_SYSTEM = `[SUPERVISOR] 你是中心化多 Agent 系统的调度器（Supervisor），负责决定下一个由哪个 Worker 执行，以及何时结束。
 
@@ -39,17 +40,31 @@ function finish(state, reason) {
  * 为什么不直接在节点里 return new Command({ goto })？
  * 两种写法都合法，但「写 next 字段 + addConditionalEdges」把控制流显式画在图上，
  * 面试时更容易讲清中心化拓扑，也让状态快照里能看到每一次决策。
+ *
+ * onEvent 是可选的展示通道（Web 控制台 SSE 用），不参与任何决策。
  */
-export function makeSupervisorNode({ llm, routeTool, cfg }) {
+export function makeSupervisorNode({ llm, routeTool, cfg, onEvent }) {
   const boundLLM = llm.bindTools([routeTool]);
   const allowed = new Set([...WORKER_NAMES, "FINISH"]);
 
   return async (state) => {
     const visited = new Set(state.visited ?? []);
+    const round = state.rounds + 1;
+
+    emit(onEvent, EVT.NODE, { node: "supervisor", phase: "start", round });
 
     // 护栏 1：全局轮次上限，避免任何模型在 Worker 之间反复横跳
     if (state.rounds >= cfg.graph.maxRounds) {
-      return finish(state, `达到 MAX_ROUNDS=${cfg.graph.maxRounds}，强制结束`);
+      const result = finish(state, `达到 MAX_ROUNDS=${cfg.graph.maxRounds}，强制结束`);
+      emit(onEvent, EVT.ROUTE, {
+        round,
+        next: "FINISH",
+        reason: "达到 MAX_ROUNDS，护栏强制收敛",
+        visited: [...visited],
+        guardrail: true,
+      });
+      emit(onEvent, EVT.NODE, { node: "supervisor", phase: "end", round });
+      return result;
     }
 
     const statusText =
@@ -72,27 +87,43 @@ export function makeSupervisorNode({ llm, routeTool, cfg }) {
     const call = calls.find((c) => c.name === "route") ?? calls[0];
     let next = call?.args?.next ?? "FINISH";
     let reason = call?.args?.reason ?? "模型未调用 route，兜底结束";
+    let guardrail = false;
+    const instruction = call?.args?.instruction ?? "";
 
     if (!allowed.has(next)) {
       reason = `非法路由 ${next}，已被白名单拦截`;
       next = "FINISH";
+      guardrail = true;
     }
 
     // 护栏 3：Writer 已完成则强制收敛；并防止重复调度同一 Worker
     if (visited.has("writer") && next !== "FINISH") {
       next = "FINISH";
       reason = "writer 已完成，强制 FINISH";
+      guardrail = true;
     } else if (next !== "FINISH" && visited.has(next)) {
       const remaining = WORKER_NAMES.find((n) => !visited.has(n));
       next = remaining ?? "FINISH";
       reason = `避免重复调度，改选 ${next}`;
+      guardrail = true;
     }
+
+    emit(onEvent, EVT.ROUTE, {
+      round,
+      next,
+      reason,
+      instruction,
+      visited: [...visited],
+      guardrail,
+      rawToolCalls: calls.length,
+    });
+    emit(onEvent, EVT.NODE, { node: "supervisor", phase: "end", round });
 
     return {
       next,
       rounds: 1,
       ...(next === "FINISH" ? { finalAnswer: lastWorkerText(state) } : {}),
-      trace: [`round ${state.rounds + 1}: supervisor -> ${next} (${reason})`],
+      trace: [`round ${round}: supervisor -> ${next} (${reason})`],
     };
   };
 }
